@@ -322,7 +322,7 @@ class TadoACClimate(PerEntityAvailabilityMixin, CoordinatorEntity["TadoDataUpdat
     @staticmethod
     def _extract_temp_range(ac_caps: dict[str, Any]) -> tuple[float, float, float]:
         """Extract min/max/step temperature from AC capabilities."""
-        for mode in ["COOL", "HEAT", "AUTO", "DRY"]:
+        for mode in ["COOL", "HEAT", "AUTO", "DRY", "FAN"]:
             if mode in ac_caps and "temperatures" in ac_caps[mode]:
                 temp_caps = ac_caps[mode]["temperatures"].get("celsius") or {}
                 return temp_caps.get("min", 16), temp_caps.get("max", 30), temp_caps.get("step", 1)
@@ -1189,8 +1189,8 @@ class TadoACClimate(PerEntityAvailabilityMixin, CoordinatorEntity["TadoDataUpdat
             mode_caps = ac_caps.get(tado_mode) or {}
             mode_has_temp = "temperatures" in mode_caps
 
-            if tado_mode == "FAN" or not mode_has_temp:
-                # FAN and any mode without a temperature characteristic
+            if not mode_has_temp:
+                # Any mode without a temperature characteristic
                 # don't carry a target, clear it so the card stops
                 # showing a stale target value.
                 self._attr_target_temperature = None
@@ -1600,7 +1600,7 @@ class TadoACClimate(PerEntityAvailabilityMixin, CoordinatorEntity["TadoDataUpdat
         mode_caps = ac_caps.get(current_mode) or {}
 
         # Temperature
-        if current_mode != "FAN" and "temperatures" in mode_caps:
+        if "temperatures" in mode_caps:
             if temperature:
                 setting["temperature"] = {"celsius": temperature}
             elif self._attr_target_temperature:

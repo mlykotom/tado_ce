@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Bug fixes
+
+#### Air Conditioning
+
+- **Switching AC to fan-only mode no longer fails with HTTP 422 on units that declare temperatures** — for AC profiles where Tado's capabilities declare temperatures under `FAN` mode (e.g. Smart AC Control IR code sets that encode temperature in the fan command), Tado CE used to unconditionally strip the temperature from the overlay request and clear the target temperature, causing Tado's API to reject the write with `temperature required for mode FAN`. Target temperature is now retained and sent in the overlay payload whenever `temperatures` is present in the AC's fan-mode capabilities.
+
 ## [4.4.1] - 2026-09-06
 
 ### Home Assistant compatibility
