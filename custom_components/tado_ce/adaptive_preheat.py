@@ -7,11 +7,12 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import entity_registry
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
 from homeassistant.util import slugify
 
-from .const import ENTITY_DATA_PREHEAT_ADVISOR, ENTITY_DATA_PREHEAT_NOW
+from .const import DOMAIN, ENTITY_DATA_PREHEAT_ADVISOR, ENTITY_DATA_PREHEAT_NOW
 from .error_dispatch import handle_background_write_error
 from .exceptions import TadoAuthError, TadoRateLimitError
 from .helpers import build_timer_termination, get_zone_states
@@ -67,6 +68,52 @@ class AdaptivePreheatManager:
         self._retry_overlay: dict[str, _StartMark] = {}
         # Zones with a start write in flight, so a second update or the start-up check cannot send another.
         self._starting: set[str] = set()
+
+    def _resolve_entity_id(
+        self,
+        zone_id: str,
+        platform: str,
+        unique_id_suffix: str,
+        fallback_entity_id: str,
+    ) -> str:
+        """Return the registered entity ID, or the pre-registration fallback."""
+        if self._data_loader is None:
+            return fallback_entity_id
+
+        unique_id = f"tado_ce_{self._data_loader.home_id}_zone_{zone_id}"
+        if unique_id_suffix:
+            unique_id += f"_{unique_id_suffix}"
+        registered_entity_id = entity_registry.async_get(self._hass).async_get_entity_id(
+            platform, DOMAIN, unique_id,
+        )
+        return registered_entity_id or fallback_entity_id
+
+    def _resolve_zone_entity_ids(self, zone_id: str) -> None:
+        """Refresh a zone's entity IDs from the entity registry.
+
+        Entity registry entries may be created after adaptive preheat setup, so
+        callers can use this to replace a temporary slug-based fallback later.
+        """
+        zone_info = self._zone_info[zone_id]
+        zone_slug = zone_info["slug"]
+        zone_info["preheat_now_entity"] = self._resolve_entity_id(
+            zone_id,
+            "binary_sensor",
+            "preheat_now",
+            f"binary_sensor.{zone_slug}_preheat_now",
+        )
+        zone_info["preheat_advisor_entity"] = self._resolve_entity_id(
+            zone_id,
+            "sensor",
+            "preheat_advisor",
+            f"sensor.{zone_slug}_preheat_advisor",
+        )
+        zone_info["climate_entity"] = self._resolve_entity_id(
+            zone_id,
+            "climate",
+            "",
+            f"climate.{zone_slug}",
+        )
 
     def set_coordinator(self, coordinator: TadoDataUpdateCoordinator) -> None:
         """Wire the coordinator back-reference once it has been created.
@@ -127,6 +174,7 @@ class AdaptivePreheatManager:
                 "preheat_advisor_entity": f"sensor.{zone_slug}_preheat_advisor",
                 "climate_entity": f"climate.{zone_slug}",
             }
+            self._resolve_zone_entity_ids(zone_id)
             self._enabled_zones.append(zone_id)
 
         if not self._enabled_zones:
@@ -143,6 +191,9 @@ class AdaptivePreheatManager:
 
     async def _start_monitoring(self) -> None:
         """Subscribe to state changes on each zone's preheat_now binary sensor."""
+        for zone_id in self._enabled_zones:
+            self._resolve_zone_entity_ids(zone_id)
+
         entities_to_monitor = [
             self._zone_info[zone_id]["preheat_now_entity"]
             for zone_id in self._enabled_zones
@@ -429,6 +480,7 @@ class AdaptivePreheatManager:
 
     def _is_preheat_now_off(self, zone_id: str) -> bool:
         """Return True when the zone's preheat_now entity exists and is no longer on."""
+        self._resolve_zone_entity_ids(zone_id)
         state = self._hass.states.get(self._zone_info[zone_id]["preheat_now_entity"])
         return state is not None and state.state != "on"
 
