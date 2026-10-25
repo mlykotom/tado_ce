@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .heating_models import HeatingCycle
 
 _LOGGER = logging.getLogger(__name__)
+
+MIN_CYCLE_DURATION = timedelta(minutes=5)
+MAX_HEATING_RATE_C_PER_HOUR = 10.0
 
 
 class HeatingCycleAnalyzer:
@@ -22,13 +26,23 @@ class HeatingCycleAnalyzer:
         # Valid = completed, real heating happened, positive
         # delta. The 0.1°C floor filters cycles that finished
         # the moment they started (e.g. setpoint matched current).
-        valid_cycles = [
-            c
-            for c in cycles
-            if c.completed
-            and c.start_temp is not None
-            and c.start_temp < c.target_temp - 0.1
-        ]
+        valid_cycles = []
+        for cycle in cycles:
+            if not (
+                cycle.completed
+                and not cycle.interrupted
+                and cycle.end_time is not None
+                and cycle.start_temp is not None
+                and cycle.start_temp < cycle.target_temp - 0.1
+            ):
+                continue
+            duration = cycle.end_time - cycle.start_time
+            duration_hours = duration.total_seconds() / 3600
+            delta = cycle.target_temp - cycle.start_temp
+            rate = delta / duration_hours if duration_hours > 0 else 0.0
+            if duration < MIN_CYCLE_DURATION or not 0 < rate <= MAX_HEATING_RATE_C_PER_HOUR:
+                continue
+            valid_cycles.append(cycle)
 
         if len(valid_cycles) < self._min_cycles:
             _LOGGER.debug(
@@ -73,7 +87,7 @@ class HeatingCycleAnalyzer:
 
         # Confidence score (0.0-1.0) based on cycle count and consistency
         confidence = self._calculate_confidence(
-            len(cycles),
+            len(valid_cycles),
             inertia_times,
             heating_rates,
         )
@@ -82,8 +96,8 @@ class HeatingCycleAnalyzer:
             "inertia_time": round(avg_inertia, 1),  # minutes
             "heating_rate": round(avg_heating_rate, 2),  # °C/h
             "confidence_score": round(confidence, 2),  # 0.0-1.0
-            "cycle_count": len(cycles),
-            "completed_count": len(cycles),
+            "cycle_count": len(valid_cycles),
+            "completed_count": len(valid_cycles),
         }
 
     def estimate_preheat_time(

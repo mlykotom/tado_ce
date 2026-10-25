@@ -13,6 +13,10 @@ _LOGGER = logging.getLogger(__name__)
 
 # Maximum cycle duration before timeout
 MAX_CYCLE_DURATION = timedelta(hours=6)
+# Ignore sensor-source switches and startup transients that appear to reach the
+# target almost immediately or imply an impossible heating rate.
+MIN_CYCLE_DURATION = timedelta(minutes=5)
+MAX_HEATING_RATE_C_PER_HOUR = 10.0
 
 
 class HeatingCycleDetector:
@@ -191,7 +195,21 @@ class HeatingCycleDetector:
             target_temp = self._active_cycle.target_temp
 
             if start_temp is not None and start_temp < target_temp - 0.1:
-                # Valid heating cycle - temperature actually needed to rise
+                duration = self._active_cycle.end_time - self._active_cycle.start_time
+                duration_hours = duration.total_seconds() / 3600
+                heating_rate = (target_temp - start_temp) / duration_hours if duration_hours > 0 else 0.0
+
+                if duration < MIN_CYCLE_DURATION or not 0 < heating_rate <= MAX_HEATING_RATE_C_PER_HOUR:
+                    _LOGGER.debug(
+                        "Heating Detector: zone %s discarded implausible cycle, "
+                        "duration %.1f min, rate %.2f°C/h",
+                        self._zone_id,
+                        duration.total_seconds() / 60,
+                        heating_rate,
+                    )
+                    self._active_cycle = None
+                    return None
+
                 self._active_cycle.completed = True
                 completed = self._active_cycle
                 self._active_cycle = None

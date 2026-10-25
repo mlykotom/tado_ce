@@ -37,6 +37,7 @@ from .const import (
     get_climate_zone_ids,
     is_climate_zone,
 )
+from .climate_helpers import read_external_sensor
 from .exceptions import TadoAuthError, TadoBridgeApiError, TadoRateLimitError, TadoSyncError
 from .helpers import (
     apply_cloud_reading_trust,
@@ -1299,7 +1300,34 @@ class TadoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 setting = data.get("setting") or {}
                 target_temp = (setting.get("temperature") or {}).get("celsius")
                 sensor_data = data.get("sensorDataPoints") or {}
-                current_temp = (sensor_data.get("insideTemperature") or {}).get("celsius")
+                cloud_temp = (sensor_data.get("insideTemperature") or {}).get("celsius")
+                external_temp = read_external_sensor(
+                    self.hass,
+                    self.zone_config_manager,
+                    zone_id,
+                    "external_temp_sensor",
+                )
+                current_temp = external_temp
+
+                # Keep the cycle detector's reading source aligned with
+                # climate_heating: external sensor > fresh HomeKit > cloud.
+                # Feeding cloud first and the merged value shortly afterward
+                # creates a false, impossibly fast cycle.
+                provider = self.homekit_provider
+                reconciler = self.state_reconciler
+                if current_temp is None and reconciler and provider and provider.is_connected:
+                    reconciler.local_provider = provider
+                    display_source = self.zone_config_manager.get_zone_value(
+                        zone_id, "display_temp_source", "auto",
+                    )
+                    current_temp, _ = reconciler.merge_zone_temperature(
+                        zone_id,
+                        cloud_temp,
+                        display_source=display_source,
+                        purpose="display",
+                    )
+                if current_temp is None:
+                    current_temp = cloud_temp
                 if current_temp is None:
                     self.heating_cycle_coordinator.clear_zone_state(zone_id, source="cloud")
                     continue
@@ -2719,4 +2747,3 @@ class TadoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "zone %s. HA issue registry call failed",
                 zone_id, exc_info=True,
             )
-
