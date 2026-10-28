@@ -25,7 +25,11 @@ from .format_helpers import (
 from .insights_presenter import (
     calculate_historical_deviation_recommendation,
 )
-from .sensor_helpers import get_outdoor_temperature as _get_outdoor_temp
+from .sensor_helpers import (
+    get_outdoor_temperature as _get_outdoor_temp,
+    get_zone_humidity as _get_zone_humidity,
+    get_zone_temperature as _get_zone_temperature,
+)
 from .sensor_zone import TadoZoneSensor
 
 if TYPE_CHECKING:
@@ -112,8 +116,9 @@ class TadoScheduleDeviationSensor(TadoZoneSensor):
                 self._data_present = False
                 return
 
-            sensor_data = zone_data.get("sensorDataPoints") or {}
-            self._current_temp = (sensor_data.get("insideTemperature") or {}).get("celsius")
+            self._current_temp = _get_zone_temperature(
+                self.hass, self.coordinator.zone_config_manager, self._zone_id, zone_data,
+            )
 
             if self._current_temp is None:
                 self._data_present = False
@@ -320,8 +325,9 @@ class TadoNextScheduleTempSensor(TadoZoneSensor):
 
             zone_data = self._get_zone_data()
             if zone_data:
-                sensor_data = zone_data.get("sensorDataPoints") or {}
-                self._current_temp = (sensor_data.get("insideTemperature") or {}).get("celsius")
+                self._current_temp = _get_zone_temperature(
+                    self.hass, self.coordinator.zone_config_manager, self._zone_id, zone_data,
+                )
 
             if not next_block.is_heating_on or next_block.target_temp is None:
                 # Heating OFF block - show "OFF" instead of unknown
@@ -631,8 +637,9 @@ class TadoPreheatAdvisorSensor(TadoZoneSensor):
                 self._data_present = False
                 return
 
-            sensor_data = zone_data.get("sensorDataPoints") or {}
-            self._current_temp = (sensor_data.get("insideTemperature") or {}).get("celsius")
+            self._current_temp = _get_zone_temperature(
+                self.hass, self.coordinator.zone_config_manager, self._zone_id, zone_data,
+            )
 
             if self._current_temp is None:
                 self._data_present = False
@@ -886,13 +893,14 @@ class TadoSmartComfortTargetSensor(TadoZoneSensor):
                 self._data_present = False
                 return
 
-            sensor_data = zone_data.get("sensorDataPoints") or {}
-            inside_temp = sensor_data.get("insideTemperature") or {}
-            self._current_temp = inside_temp.get("celsius")
+            self._current_temp = _get_zone_temperature(
+                self.hass, self.coordinator.zone_config_manager, self._zone_id, zone_data,
+            )
 
             # Get humidity
-            humidity_data = sensor_data.get("humidity") or {}
-            self._humidity = humidity_data.get("percentage")
+            self._humidity = _get_zone_humidity(
+                self.hass, self.coordinator.zone_config_manager, self._zone_id, zone_data,
+            )
 
             # Get outdoor temperature
             outdoor_entity = config_manager.get_outdoor_temp_entity()

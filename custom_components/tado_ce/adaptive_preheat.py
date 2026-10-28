@@ -15,7 +15,8 @@ from homeassistant.util import slugify
 from .const import DOMAIN, ENTITY_DATA_PREHEAT_ADVISOR, ENTITY_DATA_PREHEAT_NOW
 from .error_dispatch import handle_background_write_error
 from .exceptions import TadoAuthError, TadoRateLimitError
-from .helpers import build_timer_termination, get_zone_states
+from .helpers import build_timer_termination, get_zone_states, merge_homekit_into_zone_data
+from .sensor_helpers import get_zone_temperature
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -326,17 +327,16 @@ class AdaptivePreheatManager:
             return None
 
     def _is_already_at_target(self, zone_id: str, zone_name: str, target_temp: float) -> bool:
-        """Return True when the zone is already within 0.5°C of the target."""
+        """Return True when the zone is already within 0.1°C of the target."""
         zone_data = self._get_zone_state(zone_id)
         if not zone_data:
             return False
         if self._coordinator is not None:
-            from .helpers import merge_homekit_into_zone_data
-
             zone_data = merge_homekit_into_zone_data(zone_data, zone_id, self._coordinator)
-        sensor_data = zone_data.get("sensorDataPoints") or {}
-        current_temp = (sensor_data.get("insideTemperature") or {}).get("celsius")
-        if current_temp is not None and current_temp >= target_temp - 0.5:
+        current_temp = get_zone_temperature(
+            self._hass, self._zone_config_manager, zone_id, zone_data,
+        )
+        if current_temp is not None and current_temp >= target_temp - 0.1:
             _LOGGER.debug(
                 "Adaptive Preheat: %s already at target (%.1f°C ≥ %.1f°C), "
                 "no preheat needed",

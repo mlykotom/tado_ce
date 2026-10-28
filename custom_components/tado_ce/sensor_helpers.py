@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from .calculations import calculate_surface_temperature
+from .climate_helpers import read_external_sensor
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -95,6 +96,34 @@ def get_outdoor_humidity(hass: HomeAssistant, entity_id: str) -> float | None:
     return None
 
 
+def get_zone_temperature(
+    hass: HomeAssistant,
+    zone_config_manager: ZoneConfigManager | None,
+    zone_id: str,
+    zone_data: dict[str, Any],
+) -> float | None:
+    """Return a zone's configured external temperature, then Tado temperature."""
+    external = read_external_sensor(hass, zone_config_manager, zone_id, "external_temp_sensor")
+    if external is not None:
+        return external
+    sensor_data = zone_data.get("sensorDataPoints") or {}
+    return (sensor_data.get("insideTemperature") or {}).get("celsius")
+
+
+def get_zone_humidity(
+    hass: HomeAssistant,
+    zone_config_manager: ZoneConfigManager | None,
+    zone_id: str,
+    zone_data: dict[str, Any],
+) -> float | None:
+    """Return a zone's configured external humidity, then Tado humidity."""
+    external = read_external_sensor(hass, zone_config_manager, zone_id, "external_humidity_sensor")
+    if external is not None:
+        return external
+    sensor_data = zone_data.get("sensorDataPoints") or {}
+    return (sensor_data.get("humidity") or {}).get("percentage")
+
+
 def get_effective_temperature(
     hass: HomeAssistant,
     zone_id: str,
@@ -144,4 +173,4 @@ def get_effective_temperature(
         return fallback
 
 
-__all__ = ["get_outdoor_temperature"]
+__all__ = ["get_outdoor_temperature", "get_zone_humidity", "get_zone_temperature"]

@@ -204,6 +204,35 @@ def test_re_resolves_fallback_after_entity_is_registered(
     assert manager._zone_info["42"]["preheat_now_entity"] == registered_id
 
 
+@pytest.mark.parametrize(
+    ("external_temperature", "already_at_target"),
+    [(19.9, True), (19.8, False)],
+)
+def test_already_at_target_uses_external_sensor_and_0_1_deadband(
+    manager: adaptive_preheat.AdaptivePreheatManager,
+    monkeypatch: pytest.MonkeyPatch,
+    external_temperature: float,
+    already_at_target: bool,
+) -> None:
+    """The configured room sensor is used with the 0.1°C preheat deadband."""
+    coordinator = MagicMock()
+    coordinator.data = {"zones": {"42": {"sensorDataPoints": {
+        "insideTemperature": {"celsius": 18.0},
+    }}}}
+    manager._coordinator = coordinator
+    manager._zone_config_manager = MagicMock()
+    manager._zone_config_manager.get_zone_config.return_value = {
+        "external_temp_sensor": "sensor.room_temperature",
+    }
+    manager._hass.states.get.return_value = SimpleNamespace(state=str(external_temperature))
+    monkeypatch.setattr(
+        adaptive_preheat, "merge_homekit_into_zone_data", lambda zone, _zone_id, _coord: zone,
+    )
+    monkeypatch.setattr(manager, "_get_zone_state", lambda _zone_id: coordinator.data["zones"]["42"])
+
+    assert manager._is_already_at_target("42", "Living Room", 20.0) is already_at_target
+
+
 @pytest.mark.asyncio
 async def test_start_monitoring_triggers_preheat_for_area_prefixed_entity(
     manager: adaptive_preheat.AdaptivePreheatManager,
